@@ -10,7 +10,7 @@
 
 void printUsage()
 {
-    std::cout << "RTFM!!!\n";
+    std::cout << "Usage:\n  cmake-missed-files-searcher path/to/project\n";
 }
 
 std::list<std::filesystem::path> gatherCMakeLists(std::filesystem::path const& workingDir)
@@ -29,7 +29,7 @@ std::list<std::filesystem::path> gatherCMakeLists(std::filesystem::path const& w
 
 std::list<std::filesystem::path> gatherSourceFilesFromDir(const std::filesystem::path& cmakePath)
 {
-    const std::set<std::string>& srcExtensions{ ".cpp", ".h", ".cc", ".mm" };
+    const std::set<std::string>& srcExtensions{ ".cpp", ".h", ".cc", ".mm", ".proto", ".rc" }; // TODO: move to config
     std::filesystem::recursive_directory_iterator recursive_dir_it(cmakePath.parent_path());
 
     std::list<std::filesystem::path> file_names;
@@ -71,6 +71,7 @@ std::map<std::filesystem::path, std::list<std::filesystem::path>> findAbsensSour
         }
 
         // Ищем в полученном содержимом названия всех .h- и .cpp-файлов, которые содержит данная директория (включая субдиректории). Если что-то отсутствует - записываем что.
+        // TODO: make this loop parallel
         for (const auto& fname : file_names)
         {
             const std::regex filePattern(
@@ -97,13 +98,12 @@ int main(int argc, const char* argv[])
         return -1;
     }
 
-	const auto absent_fileNames = findAbsensSourceFiles(
+    const auto absent_fileNames = findAbsensSourceFiles(
         gatherCMakeLists(workingDir));
 
-	// Пишем в текстовик названия отсутствующих в CMakeLists.txt файлов и директорию, к которой это относится.
     if (absent_fileNames.empty())
     {
-        std::cout << "All files are present in all CMakeLists.txt or no one CMakeLists.txt has been found." << std::endl;
+        std::cout << "All files are present in all CMakeLists.txt or no CMakeLists.txt has been found." << std::endl;
         return 0;
     }
 
@@ -117,5 +117,4 @@ int main(int argc, const char* argv[])
         }
     }
     return 0;
-
 }
