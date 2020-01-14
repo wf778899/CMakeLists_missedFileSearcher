@@ -7,6 +7,7 @@
 #include <list>
 #include <set>
 #include <regex>
+#include <future>
 
 void printUsage()
 {
@@ -48,6 +49,9 @@ std::list<std::filesystem::path> gatherSourceFilesFromDir(const std::filesystem:
 std::map<std::filesystem::path, std::list<std::filesystem::path>> findAbsensSourceFiles(std::list<std::filesystem::path> const& cmake_root_paths)
 {
     std::map<std::filesystem::path, std::list<std::filesystem::path>> absent_fileNames;
+    std::mutex resultMutex;
+    std::vector<std::future<void>> waitList;  waitList.reserve(cmake_root_paths.size() * 50);
+
     // Сканируем каждую директорию, содержащую CMakeLists.txt
     for (const auto& cmakePath : cmake_root_paths)
     {
@@ -61,29 +65,32 @@ std::map<std::filesystem::path, std::list<std::filesystem::path>> findAbsensSour
         }
 
         // Тупо копируем содержимое файла в строку
-        const std::string file_content((std::istreambuf_iterator<char>(CMakeLists)),
+        const auto file_content = std::make_shared<std::string>((std::istreambuf_iterator<char>(CMakeLists)),
             std::istreambuf_iterator<char>());
 
-        if (file_content.empty())
+        if (file_content->empty())
         {
             std::cout << "CMakeLists.txt is empty somewhat." << std::endl;
             continue;
         }
 
         // Ищем в полученном содержимом названия всех .h- и .cpp-файлов, которые содержит данная директория (включая субдиректории). Если что-то отсутствует - записываем что.
-        // TODO: make this loop parallel
         for (const auto& fname : file_names)
         {
-            const std::regex filePattern(
-                "[\\t\\n\\r\\s]+" + fname.generic_string() + "[\\t\\n\\r\\s]+"
-            );
+            waitList.push_back( std::async([&resultMutex, &absent_fileNames, fname, file_content, cmakePath]() {
+                const std::regex filePattern(
+                    "[\\t\\n\\r\\s]+" + fname.generic_string() + "[\\t\\n\\r\\s]+"
+                );
 
-            if (!std::regex_search(file_content, filePattern) )
-            {
-                absent_fileNames[cmakePath.parent_path()].push_back(fname.generic_string());
-            }
+                if (!std::regex_search(*file_content, filePattern) )
+                {
+                    std::lock_guard<std::mutex> lock(resultMutex);
+                    absent_fileNames[cmakePath.parent_path()].push_back(fname.generic_string());
+                }
+            }) );
         }
     }
+
     return absent_fileNames;
 }
 
@@ -98,8 +105,12 @@ int main(int argc, const char* argv[])
         return -1;
     }
 
+    const auto start = std::chrono::steady_clock::now();
+
     const auto absent_fileNames = findAbsensSourceFiles(
         gatherCMakeLists(workingDir));
+
+    const auto finish = std::chrono::steady_clock::now();
 
     if (absent_fileNames.empty())
     {
@@ -116,5 +127,8 @@ int main(int argc, const char* argv[])
             std::cout << '\t' << fname << std::endl;
         }
     }
+
+    std::cout << "\nWorked " << std::chrono::duration_cast<std::chrono::microseconds>(finish - start).count() << "mks\n";
+
     return 0;
 }
